@@ -1,25 +1,32 @@
 #!/bin/bash
 
-set -exo pipefail
+# tmpopen - Opens files from S3 in a temporary directory and cleans up after
+# Usage: tmpopen "s3://bucket/path/to/file"
 
-# Check if the required argument is provided
+set -e
+
 if [ -z "$1" ]; then
-  echo "Usage: tmpopen <S3 path>"
-  exit 1
+    echo "Usage: tmpopen s3://bucket/path/to/file"
+    exit 1
 fi
 
-set -u
+S3_PATH="$1"
+FILENAME=$(basename "$S3_PATH")
+TEMP_DIR=$(mktemp -d)
+LOCAL_PATH="$TEMP_DIR/$FILENAME"
 
-S3_PATH=$1
+echo "Downloading $S3_PATH to temporary location..."
+aws s3 cp "$S3_PATH" "$LOCAL_PATH"
 
-# Generate a temporary directory name and make sure it gets cleaned up
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
-aws s3 cp "$S3_PATH" "$TMP_DIR/$(basename "$S3_PATH")"
+echo "Opening $FILENAME..."
+open "$LOCAL_PATH"
 
-# Open the downloaded file
-# TODO: this should use 'open' on mac
-xdg-open "$TMP_DIR/$(basename "$S3_PATH")"
+# Wait for the file to be closed
+# This is a bit tricky since 'open' returns immediately
+echo "File opened. Press Enter when you're done to clean up..."
+read -r
 
-# Give the system some time to open the file
-sleep 5
+# Clean up
+echo "Cleaning up temporary files..."
+rm -rf "$TEMP_DIR"
+echo "Done!"

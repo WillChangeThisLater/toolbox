@@ -2,8 +2,6 @@
 
 set -euo pipefail
 
-# I use this script in ~/.tmux.conf
-
 usage() {
     echo "Usage: $0 {get-active-aws-account|tmux-aws-format|get-k8s-info} [arguments...]" >&2
     exit 1
@@ -57,6 +55,7 @@ function get_active_aws_account()
     fi
 
     echo "${ACCOUNTNUM}:${ROLENAME}"
+    #echo -e "\033[38;5;${COLORCODE}m${ACCOUNTNUM}:${ROLENAME}\033[0m"
 }
 
 main() {
