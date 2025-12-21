@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -euox pipefail
+#set -euox pipefail
 
 # if slink isn't installed, install it
 which slink 2>/dev/null || ./slink.sh slink.sh
