@@ -9,7 +9,7 @@ usage() {
 	echo "             Defaults to '[arch@archlinux shell-scripts]$'."
 	echo "  -l LIMIT   The number of lines to capture from the tmux pane."
 	echo "             Defaults to 250."
-	echo "  -d         Debug flag"
+	echo "  -d         Debug flag (print the llm prompt to stdout instead of calling llm)"
 	echo "  -h         Show this help message and exit."
 	echo "  -g         Pipe output through 'glow'"
 	echo "  -e         (exec) bash command"
@@ -28,10 +28,10 @@ GLOW=false
 EXEC_CMD=false
 
 # Parse command-line options
-while getopts ":p:l:egh" opt; do
-	case $opt in
-	s) PROMPT="$OPTARG" ;; # "shell" prompt (note: -s isn't in optstring but kept for compatibility)
-	p) PANE_TARGET="$OPTARG" ;;
+while getopts ":p:l:edgh" opt; do
+ case $opt in
+ s) PROMPT="$OPTARG" ;; # "shell" prompt (note: -s isn't in optstring but kept for compatibility)
+  p) PANE_TARGET="$OPTARG" ;;
 	l) LIMIT="$OPTARG" ;;
 	d) DEBUG=true ;;
 	e) EXEC_CMD=true ;;
@@ -101,18 +101,15 @@ respond() {
 			EOF
 		fi
 
+               cat <<-EOF
+                       ## context handling tips
+                       - treat the captured history as authoritative; review it before deciding anything is missing.
+                       - if the user question mentions a command, output, or file, look for that exact content in the captured session and refer to what you find before falling back.
+                       - whenever you see diagnostic text (errors, warnings, help text, etc.) that matches the user's ask, mention and explain it clearly in your response so the user knows you read it.
+                       - repeated references like "see the output above" or "how can this be improved" should prompt you to use the most recent relevant lines instead of reissuing the fallback line.
+		EOF
+
 		cat <<-EOF
-			## when required context is missing
-			if the request refers to something not visible in the captured session, output **exactly one line and nothing else**, using this template (replace {{ thing }} with a short noun phrase and the number with $twice_limit).
-
-			for instance:
-
-			\`\`\`
-			I can't see the {{ thing }} you're referring to. Make sure you're running me in the right pane, or try calling me again with \`convo -l $twice_limit\` to provide more context
-			\`\`\`
-
-			- choose {{ thing }} from the user's request (e.g., "python traceback", "error message", "build log").
-
 			## response format
 			- prefer markdown for formatting long form responses
 			- be clear and concise; prioritize the answer/deliverable over explanation.
@@ -150,6 +147,22 @@ respond() {
 			- be direct and practical
 			- assume technical competence but don’t skip crucial steps.
 			- use precise language
+
+			## error cases
+			### when the question is too vague
+			if the user asks a vague question you don't understand, ask for clarification
+
+			### when something is not visible
+			the terminal session you see is truncated to the last $LIMIT lines of output. this happens rarely, but sometimes the user will reference something (usually the output of a command) which occurred more than $LIMIT lines ago. when this happens, output **exactly one line and nothing else**, using this template. you should replace {{ thing }} with a short noun phrase and the number with $twice_limit.
+
+			for instance:
+
+			\`\`\`
+			I can't see the {{ thing }} you're referring to. Make sure you're running me in the right pane, or try calling me again with \`convo -l $twice_limit\` to provide more context
+			\`\`\`
+
+			- choose {{ thing }} from the user's request (e.g., "python traceback", "error message", "build log").
+
 		EOF
 		cat <<-EOF
 		## writing commands
@@ -278,11 +291,16 @@ respond() {
                 \`\`\`
 		EOF
 	}
-	if (($# > 0)); then
-		generate_payload | llm "$@"
-	else
-		generate_payload | llm
-	fi
+    if [[ "$DEBUG" == true ]]; then
+        generate_payload
+        return
+    fi
+
+    if (($# > 0)); then
+        generate_payload | llm "$@"
+    else
+        generate_payload | llm
+    fi
 }
 
 # Dispatch
@@ -308,4 +326,8 @@ post_processors() {
 }
 
 # Dispatch (no outer conditional)
-respond "$@" | post_processors
+if [[ "$DEBUG" == true ]]; then
+    respond "$@"
+else
+    respond "$@" | post_processors
+fi
