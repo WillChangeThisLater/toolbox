@@ -3,8 +3,8 @@
 set -euo pipefail
 
 set_key_repeat() {
-  local repeat_rate=${1:-1}   # Default to 1 (fastest)
-  local initial_delay=${2:-10} # Default to 10 (short delay)
+  local repeat_rate=${1:50}
+  local initial_delay=${2:5}
 
   # Detect OS properly
   local os_type=$(uname -s)
@@ -27,7 +27,7 @@ set_key_repeat() {
       # Ensure values are in sensible ranges
       [[ $gnome_delay -lt 50 ]] && gnome_delay=50
       [[ $gnome_delay -gt 900 ]] && gnome_delay=900
-      [[ $gnome_interval -lt 10 ]] && gnome_interval=10
+      [[ $gnome_interval -lt 5 ]] && gnome_interval=5
       [[ $gnome_interval -gt 50 ]] && gnome_interval=50
 
       gsettings set org.gnome.desktop.peripherals.keyboard delay $gnome_delay
