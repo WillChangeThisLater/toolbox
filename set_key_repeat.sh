@@ -21,11 +21,11 @@ set_key_repeat() {
       # Convert our values to GNOME-compatible values
       # For delay: lower values = shorter delay (opposite of our scale)
       # For interval: lower values = faster repeat (similar to our scale)
-      local gnome_delay=$((900 - initial_delay * 30))  # Convert to ms (range ~300-700)
+      local gnome_delay=$((initial_delay * 30))
       local gnome_interval=$((30 - repeat_rate * 2))   # Convert to ms (range ~10-30)
 
       # Ensure values are in sensible ranges
-      [[ $gnome_delay -lt 100 ]] && gnome_delay=100
+      [[ $gnome_delay -lt 50 ]] && gnome_delay=50
       [[ $gnome_delay -gt 900 ]] && gnome_delay=900
       [[ $gnome_interval -lt 10 ]] && gnome_interval=10
       [[ $gnome_interval -gt 50 ]] && gnome_interval=50
