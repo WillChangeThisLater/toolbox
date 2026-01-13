@@ -5,10 +5,8 @@ set -euo pipefail
 usage() {
 	echo "Usage: script.sh [options] [\"YOUR QUESTION HERE\"]"
 	echo "Options:"
-	echo "  -p PROMPT  The prompt string to use."
-	echo "             Defaults to '[arch@archlinux shell-scripts]$'."
+	echo "  -p PANE    Pane to target."
 	echo "  -l LIMIT   The number of lines to capture from the tmux pane."
-	echo "             Defaults to 250."
 	echo "  -d         Debug flag (print the llm prompt to stdout instead of calling llm)"
 	echo "  -h         Show this help message and exit."
 	echo "  -g         Pipe output through 'glow'"
