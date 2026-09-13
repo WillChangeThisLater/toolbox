@@ -4,8 +4,7 @@
 # Usage:
 #   stt [FILE|-]      transcribe a file (wav/mp3/flac/ogg) or stdin PCM (16k mono
 #                     s16le, "-"); with no argument, record from the mic (arecord)
-#                     until Enter is pressed. While recording, a live partial
-#                     transcript is shown on stderr.
+#                     until Enter is pressed.
 #
 # Options:
 #   -m MODEL          model path (default from config or ggml-base.en)
@@ -17,7 +16,6 @@
 #
 # Config (first match wins): $STT_CONFIG, ~/.config/stt/config.yaml, defaults.
 # Flat YAML only:   model: path    backend: cmd with {model} and {file}    stop_words: a, b    case: sentence|keep
-# Env: STT_PARTIAL_INTERVAL (seconds between partials, default 2)
 #
 # stdout carries ONLY the transcript. Diagnostics go to stderr.
 # Exit codes: 0 ok, 1 usage/error, 2 no speech detected, 10 stop word hit.
@@ -114,64 +112,30 @@ MODEL_ABS=${MODEL/#\~/$HOME}
 # --- capture --------------------------------------------------------------
 
 T_START=$(date +%s)
-PARTIAL_INTERVAL=${STT_PARTIAL_INTERVAL:-2}   # seconds between partial transcriptions
-LAST_PARTIAL=""
-# Partials go to stdout when it's a terminal (one stream on screen); when
-# stdout is piped/redirected they go to stderr so the pipe stays clean.
+# Spinner goes to stdout when it's a terminal (one stream on screen); stderr
+# when only stderr is a terminal (e.g. `stt | wc`); nowhere if both redirected.
 if [ -t 1 ] && [ "$JSON" = 0 ] && [ -z "$OPT_OUTPUT" ]; then
-	PARTIAL_DEST=/dev/stdout
+	SPIN_DEST=/dev/stdout
 	SPIN_ENABLED=1
 elif [ -t 2 ]; then
-	PARTIAL_DEST=/dev/stderr
+	SPIN_DEST=/dev/stderr
 	SPIN_ENABLED=1
 else
-	PARTIAL_DEST=/dev/stderr
-	SPIN_ENABLED=0   # nothing is watching live; don't write spinner frames anywhere
+	SPIN_DEST=/dev/stderr
+	SPIN_ENABLED=0
 fi
-TERMINAL_WIDTH=$(tput cols 2>/dev/null || echo 80)
 
-# spin_until: animate a spinner on PARTIAL_DEST until background job $1 exits.
+# spin_until: animate a spinner on SPIN_DEST until background job $1 exits.
 # Caller must then wait "$1" for the exit status.
 spin_until() {
 	local pid="$1" i=0 frames="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 	[ "$SPIN_ENABLED" = 0 ] && { while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done; return 0; }
 	while kill -0 "$pid" 2>/dev/null; do
-		printf '\r%s transcribing...' "${frames:i%10:1}" > "$PARTIAL_DEST"
+		printf '\r%s transcribing...' "${frames:i%10:1}" > "$SPIN_DEST"
 		i=$((i + 1))
 		sleep 0.12
 	done
-	printf '\r\033[K' > "$PARTIAL_DEST"
-}
-
-# show_partial: transcribe the raw PCM captured so far ($1) and print the
-# result as a single updating line on stderr. Skips very short captures and
-# runs that yield no text; harmless if the file is mid-write (WAV header is
-# regenerated from current size each time).
-show_partial() {
-	local pcm="$1" size
-	size=$(stat -c %s "$pcm" 2>/dev/null) || return 0
-	[ "$size" -lt 32000 ] && return 0   # < 1s of audio: too little to bother
-	local wav
-	wav=$(mktemp --suffix=.wav)
-	pcm_to_wav "$pcm" > "$wav"
-	local raw cmd
-	cmd=${BACKEND//\{model\}/$MODEL_ABS}
-	cmd=${cmd//\{file\}/$wav}
-	rawtmp=$(mktemp)
-	$cmd > "$rawtmp" 2>/dev/null < /dev/null &
-	local bpid=$!
-	spin_until "$bpid"
-	wait "$bpid" || { rm -f "$wav" "$rawtmp"; return 0; }
-	raw=$(cat "$rawtmp")
-	rm -f "$wav" "$rawtmp"
-	local text
-	text=$(clean_text "$raw")
-	[ -z "$text" ] && return 0
-	[ "$text" = "$LAST_PARTIAL" ] && return 0
-	LAST_PARTIAL="$text"
-	# Truncate to terminal width: \r\033[K only erases the current row, so a
-	# wrapped partial would leave stale rows above (the "stacked lines" bug).
-	printf '\r\033[K%s' "${text:0:$((TERMINAL_WIDTH - 1))}" > "$PARTIAL_DEST"
+	printf '\r\033[K' > "$SPIN_DEST"
 }
 
 # clean_text: join whisper-cli's segment lines into one trimmed string.
@@ -194,21 +158,11 @@ capture_wav() {
 		esac
 	else
 		info "recording... press Enter to stop"
-		# arecord to raw PCM in the background so partials can read the file as it grows
 		arecord -q -r 16000 -c 1 -f S16_LE -t raw "$tmp.pcm" &
 		local pid=$!
-		# stop watching when arecord exits OR Enter is hit (racer determines which)
-		read -r _ < /dev/tty &
-		local reader=$!
-		while kill -0 "$pid" 2>/dev/null && kill -0 "$reader" 2>/dev/null; do
-			sleep "$PARTIAL_INTERVAL"
-			show_partial "$tmp.pcm"
-		done
-		kill "$reader" 2>/dev/null
-		wait "$reader" 2>/dev/null
+		read -r _ < /dev/tty
 		kill -INT "$pid" 2>/dev/null
 		wait "$pid" 2>/dev/null
-		echo > "$PARTIAL_DEST"   # move past the partial line
 		pcm_to_wav "$tmp.pcm" > "$tmp"
 		rm -f "$tmp.pcm"
 	fi

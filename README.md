@@ -233,8 +233,6 @@ stt -w peacock note.wav   # stop word: truncate before it, exit code 10
 stt --json file.wav       # {text, elapsed, audio_seconds, rt_factor, stopped}
 ```
 
-In mic mode a live partial transcript is shown on stderr while you talk
-(interval: `STT_PARTIAL_INTERVAL`, default 2s).
 
 Options: `-m MODEL`, `-o FILE`, `-w WORDS`, `--json`, `--list-models`.
 Optional flat-YAML config at `~/.config/stt/config.yaml` (model, backend,
