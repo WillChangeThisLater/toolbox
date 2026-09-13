@@ -214,3 +214,31 @@ A script to take screenshots of specific URLs using the [pyppeteer](https://gith
 - `--fullpage` : (Optional) Whether to take a full-page screenshot
 
 If the `--path` is not specified, the screenshot will be printed as a base64 data URL.
+
+### STT
+One-shot speech-to-text using whisper.cpp. Record from the mic or transcribe a
+file; the transcript goes to stdout, nothing else (diagnostics -> stderr), so
+it pipes cleanly.
+
+#### Requirements
+- whisper-cli on PATH and a ggml model in ~/.pi/agent/models/ (see `stt --list-models`)
+- arecord (mic mode), ffmpeg (non-wav input), jq (--json)
+
+#### Usage
+```bash
+stt                       # record from mic until Enter, transcript to stdout
+stt recording.mp3         # transcribe a file
+stt - | wc -w             # or read 16k mono s16le PCM from stdin
+stt -w peacock note.wav   # stop word: truncate before it, exit code 10
+stt --json file.wav       # {text, elapsed, audio_seconds, rt_factor, stopped}
+```
+
+Options: `-m MODEL`, `-o FILE`, `-w WORDS`, `--json`, `--list-models`.
+Optional flat-YAML config at `~/.config/stt/config.yaml` (model, backend,
+stop_words) or via `$STT_CONFIG`. Exit codes: 0 ok, 1 error, 2 no speech, 10
+stop word hit.
+
+Tests (uses the whisper.cpp jfk.wav sample + the fast tiny.en model):
+```bash
+tests/stt/run.sh   # fetch tests/stt/fixtures/jfk.wav first if missing
+```
