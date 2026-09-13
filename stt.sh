@@ -4,7 +4,8 @@
 # Usage:
 #   stt [FILE|-]      transcribe a file (wav/mp3/flac/ogg) or stdin PCM (16k mono
 #                     s16le, "-"); with no argument, record from the mic (arecord)
-#                     until Enter is pressed.
+#                     until Enter is pressed. While recording, a live partial
+#                     transcript is shown on stderr.
 #
 # Options:
 #   -m MODEL          model path (default from config or ggml-base.en)
@@ -16,6 +17,7 @@
 #
 # Config (first match wins): $STT_CONFIG, ~/.config/stt/config.yaml, defaults.
 # Flat YAML only:   model: path    backend: cmd with {model} and {file}    stop_words: a, b    case: sentence|keep
+# Env: STT_PARTIAL_INTERVAL (seconds between partials, default 2)
 #
 # stdout carries ONLY the transcript. Diagnostics go to stderr.
 # Exit codes: 0 ok, 1 usage/error, 2 no speech detected, 10 stop word hit.
@@ -112,6 +114,37 @@ MODEL_ABS=${MODEL/#\~/$HOME}
 # --- capture --------------------------------------------------------------
 
 T_START=$(date +%s)
+PARTIAL_INTERVAL=${STT_PARTIAL_INTERVAL:-2}   # seconds between partial transcriptions
+LAST_PARTIAL=""
+
+# show_partial: transcribe the raw PCM captured so far ($1) and print the
+# result as a single updating line on stderr. Skips very short captures and
+# runs that yield no text; harmless if the file is mid-write (WAV header is
+# regenerated from current size each time).
+show_partial() {
+	local pcm="$1" size
+	size=$(stat -c %s "$pcm" 2>/dev/null) || return 0
+	[ "$size" -lt 32000 ] && return 0   # < 1s of audio: too little to bother
+	local wav
+	wav=$(mktemp --suffix=.wav)
+	pcm_to_wav "$pcm" > "$wav"
+	local raw cmd
+	cmd=${BACKEND//\{model\}/$MODEL_ABS}
+	cmd=${cmd//\{file\}/$wav}
+	raw=$($cmd 2>/dev/null < /dev/null) || { rm -f "$wav"; return 0; }
+	rm -f "$wav"
+	local text
+	text=$(clean_text "$raw")
+	[ -z "$text" ] && return 0
+	[ "$text" = "$LAST_PARTIAL" ] && return 0
+	LAST_PARTIAL="$text"
+	printf '\r\033[K%s' "$text" >&2
+}
+
+# clean_text: join whisper-cli's segment lines into one trimmed string.
+clean_text() {
+	printf '%s\n' "$1" | tr '\n' ' ' | sed 's/  */ /g' | sed 's/^ *//; s/ *$//'
+}
 
 # capture_wav: sets globals WAV and AUDIO_SECONDS.
 capture_wav() {
@@ -128,12 +161,21 @@ capture_wav() {
 		esac
 	else
 		info "recording... press Enter to stop"
-		# arecord to raw PCM; foreground `read` on /dev/tty stops it via SIGINT on exit trap
+		# arecord to raw PCM in the background so partials can read the file as it grows
 		arecord -q -r 16000 -c 1 -f S16_LE -t raw "$tmp.pcm" &
 		local pid=$!
-		read -r _ < /dev/tty
+		# stop watching when arecord exits OR Enter is hit (racer determines which)
+		read -r _ < /dev/tty &
+		local reader=$!
+		while kill -0 "$pid" 2>/dev/null && kill -0 "$reader" 2>/dev/null; do
+			sleep "$PARTIAL_INTERVAL"
+			show_partial "$tmp.pcm"
+		done
+		kill "$reader" 2>/dev/null
+		wait "$reader" 2>/dev/null
 		kill -INT "$pid" 2>/dev/null
 		wait "$pid" 2>/dev/null
+		echo >&2   # move past the partial line
 		pcm_to_wav "$tmp.pcm" > "$tmp"
 		rm -f "$tmp.pcm"
 	fi
@@ -172,9 +214,7 @@ BACKEND_CMD=${BACKEND//\{model\}/$MODEL_ABS}
 BACKEND_CMD=${BACKEND_CMD//\{file\}/$WAV}
 
 RAW=$($BACKEND_CMD 2>/dev/null) || die "backend failed (exit $?)"
-
-# whisper-cli -nt emits one segment per line (possibly indented); join them.
-TEXT=$(printf '%s\n' "$RAW" | tr '\n' ' ' | sed 's/  */ /g' | sed 's/^ *//; s/ *$//')
+TEXT=$(clean_text "$RAW")
 
 [ -z "$TEXT" ] && exit 2
 
