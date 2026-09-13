@@ -120,9 +120,28 @@ LAST_PARTIAL=""
 # stdout is piped/redirected they go to stderr so the pipe stays clean.
 if [ -t 1 ] && [ "$JSON" = 0 ] && [ -z "$OPT_OUTPUT" ]; then
 	PARTIAL_DEST=/dev/stdout
+	SPIN_ENABLED=1
+elif [ -t 2 ]; then
+	PARTIAL_DEST=/dev/stderr
+	SPIN_ENABLED=1
 else
 	PARTIAL_DEST=/dev/stderr
+	SPIN_ENABLED=0   # nothing is watching live; don't write spinner frames anywhere
 fi
+TERMINAL_WIDTH=$(tput cols 2>/dev/null || echo 80)
+
+# spin_until: animate a spinner on PARTIAL_DEST until background job $1 exits.
+# Caller must then wait "$1" for the exit status.
+spin_until() {
+	local pid="$1" i=0 frames="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+	[ "$SPIN_ENABLED" = 0 ] && { while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done; return 0; }
+	while kill -0 "$pid" 2>/dev/null; do
+		printf '\r%s transcribing...' "${frames:i%10:1}" > "$PARTIAL_DEST"
+		i=$((i + 1))
+		sleep 0.12
+	done
+	printf '\r\033[K' > "$PARTIAL_DEST"
+}
 
 # show_partial: transcribe the raw PCM captured so far ($1) and print the
 # result as a single updating line on stderr. Skips very short captures and
@@ -138,14 +157,21 @@ show_partial() {
 	local raw cmd
 	cmd=${BACKEND//\{model\}/$MODEL_ABS}
 	cmd=${cmd//\{file\}/$wav}
-	raw=$($cmd 2>/dev/null < /dev/null) || { rm -f "$wav"; return 0; }
-	rm -f "$wav"
+	rawtmp=$(mktemp)
+	$cmd > "$rawtmp" 2>/dev/null < /dev/null &
+	local bpid=$!
+	spin_until "$bpid"
+	wait "$bpid" || { rm -f "$wav" "$rawtmp"; return 0; }
+	raw=$(cat "$rawtmp")
+	rm -f "$wav" "$rawtmp"
 	local text
 	text=$(clean_text "$raw")
 	[ -z "$text" ] && return 0
 	[ "$text" = "$LAST_PARTIAL" ] && return 0
 	LAST_PARTIAL="$text"
-	printf '\r\033[K%s' "$text" > "$PARTIAL_DEST"
+	# Truncate to terminal width: \r\033[K only erases the current row, so a
+	# wrapped partial would leave stale rows above (the "stacked lines" bug).
+	printf '\r\033[K%s' "${text:0:$((TERMINAL_WIDTH - 1))}" > "$PARTIAL_DEST"
 }
 
 # clean_text: join whisper-cli's segment lines into one trimmed string.
@@ -220,7 +246,13 @@ trap 'rm -f "$WAV"' EXIT
 BACKEND_CMD=${BACKEND//\{model\}/$MODEL_ABS}
 BACKEND_CMD=${BACKEND_CMD//\{file\}/$WAV}
 
-RAW=$($BACKEND_CMD 2>/dev/null) || die "backend failed (exit $?)"
+RAW_TMP=$(mktemp)
+$BACKEND_CMD > "$RAW_TMP" 2>/dev/null &
+BPID=$!
+spin_until "$BPID"
+wait "$BPID" || die "backend failed"
+RAW=$(cat "$RAW_TMP")
+rm -f "$RAW_TMP"
 TEXT=$(clean_text "$RAW")
 
 [ -z "$TEXT" ] && exit 2
