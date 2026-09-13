@@ -116,6 +116,13 @@ MODEL_ABS=${MODEL/#\~/$HOME}
 T_START=$(date +%s)
 PARTIAL_INTERVAL=${STT_PARTIAL_INTERVAL:-2}   # seconds between partial transcriptions
 LAST_PARTIAL=""
+# Partials go to stdout when it's a terminal (one stream on screen); when
+# stdout is piped/redirected they go to stderr so the pipe stays clean.
+if [ -t 1 ] && [ "$JSON" = 0 ] && [ -z "$OPT_OUTPUT" ]; then
+	PARTIAL_DEST=/dev/stdout
+else
+	PARTIAL_DEST=/dev/stderr
+fi
 
 # show_partial: transcribe the raw PCM captured so far ($1) and print the
 # result as a single updating line on stderr. Skips very short captures and
@@ -138,7 +145,7 @@ show_partial() {
 	[ -z "$text" ] && return 0
 	[ "$text" = "$LAST_PARTIAL" ] && return 0
 	LAST_PARTIAL="$text"
-	printf '\r\033[K%s' "$text" >&2
+	printf '\r\033[K%s' "$text" > "$PARTIAL_DEST"
 }
 
 # clean_text: join whisper-cli's segment lines into one trimmed string.
@@ -175,7 +182,7 @@ capture_wav() {
 		wait "$reader" 2>/dev/null
 		kill -INT "$pid" 2>/dev/null
 		wait "$pid" 2>/dev/null
-		echo >&2   # move past the partial line
+		echo > "$PARTIAL_DEST"   # move past the partial line
 		pcm_to_wav "$tmp.pcm" > "$tmp"
 		rm -f "$tmp.pcm"
 	fi
