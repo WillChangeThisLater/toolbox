@@ -1,6 +1,8 @@
 #!/bin/sh
 # pbcopy wrapper for Linux + macOS
 # If real pbcopy exists, call it; otherwise use wl-copy/xclip/xsel.
+#
+
 
 if command -v pbcopy.real >/dev/null 2>&1; then
   exec pbcopy.real "$@"
@@ -19,9 +21,9 @@ if command -v pbcopy >/dev/null 2>&1; then
   esac
 fi
 
-if command -v wl-copy >/dev/null 2>&1; then
+if command -v wl-copy >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ] ; then
   exec wl-copy "$@"
-elif command -v xclip >/dev/null 2>&1; then
+elif command -v xclip >/dev/null 2>&1 && [ -n "$DISPLAY" ] ; then
   exec xclip -selection clipboard
 elif command -v xsel >/dev/null 2>&1; then
   exec xsel --clipboard --input

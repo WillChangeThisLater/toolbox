@@ -30,7 +30,13 @@ set_key_repeat() {
       [[ $gnome_interval -lt 5 ]] && gnome_interval=5
       [[ $gnome_interval -gt 50 ]] && gnome_interval=50
 
+      # this represents the amount of time you have to hold down a key for it to be considered a 'repeated' keypress
+      # so if you are holding down 'delete', it will take X ms for that keypress to register as a repeated keypress
+      # 125ms seems to be the absolute lower bound here (anything lower and the keyboard gets too responsive)
       gsettings set org.gnome.desktop.peripherals.keyboard delay $gnome_delay
+      # when you are holding down a key, this represents the amount of time between 'keypresses'
+      # so if you have this set to 100ms and hold down the 'A' key for a second, you will get (1000 / 100) = 10 A's
+      # 5ms seems to be the lower bound here (anything lower and an accidental hold will just overwrite everything)
       gsettings set org.gnome.desktop.peripherals.keyboard repeat-interval $gnome_interval
       echo "Set GNOME keyboard repeat delay to ${gnome_delay}ms and interval to ${gnome_interval}ms"
     elif command -v xset &>/dev/null; then

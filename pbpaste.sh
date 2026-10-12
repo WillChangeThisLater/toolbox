@@ -17,9 +17,9 @@ if command -v pbpaste >/dev/null 2>&1; then
   esac
 fi
 
-if command -v wl-paste >/dev/null 2>&1; then
+if command -v wl-paste >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ] ; then
   exec wl-paste "$@"
-elif command -v xclip >/dev/null 2>&1; then
+elif command -v xclip >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
   exec xclip -selection clipboard -o
 elif command -v xsel >/dev/null 2>&1; then
   exec xsel --clipboard --output
